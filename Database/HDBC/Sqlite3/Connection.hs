@@ -2,7 +2,8 @@
 -- above line for hugs
 
 module Database.HDBC.Sqlite3.Connection 
-	(connectSqlite3, connectSqlite3Raw, Impl.Connection())
+	(connectSqlite3, connectSqlite3Raw, Impl.Connection()
+        ,Pragma (..), PragmaSynchronousValue (..))
  where
 
 import Database.HDBC.Types
@@ -39,25 +40,46 @@ if your application or filesystemare not running in Unicode space. -}
 connectSqlite3Raw :: FilePath -> IO Impl.Connection
 connectSqlite3Raw = genericConnect withCString
 
+{- | Like 'connectSqlite3' with list of pragmas to be run before first 
+transaction is open.-}
+connectSqlite3WithPragmas :: [Pragma] -> FilePath -> IO Impl.Connection
+connectSqlite3WithPragmas = 
+    genericConnect (B.useAsCString . BUTF8.fromString)
+
+{- | Pragmas which can be invoked using 'connectSqlite3WithPragmas' -}
+data Pragma = PragmaFKeys Bool
+            | PragmaSynchronous PragmaSynchronousValue
+           
+data PragmaSynchronousValue = PragmaSynchronousOFF
+                            | PragmaSynchronousNORMAL
+                            | PragmaSynchronousFULL
+                            
+instance Show PragmaSynchronousValue where
+   show PragmaSynchronousOFF = "OFF"
+   show PragmaSynchronousNORMAL = "NORMAL"
+   show PragmaSynchronousFULL = "ON"
+
 genericConnect :: (String -> (CString -> IO Impl.Connection) -> IO Impl.Connection) 
+               -> [Pragma]
                -> FilePath
                -> IO Impl.Connection
-genericConnect strAsCStrFunc fp =
+genericConnect strAsCStrFunc pgms fp =
     strAsCStrFunc fp
         (\cs -> alloca 
          (\(p::Ptr (Ptr CSqlite3)) ->
               do res <- sqlite3_open cs p
                  o <- peek p
                  fptr <- newForeignPtr sqlite3_closeptr o
-                 newconn <- mkConn fp fptr
+                 newconn <- mkConn pgms fp fptr
                  checkError ("connectSqlite3 " ++ fp) fptr res
                  return newconn
          )
         )
 
-mkConn :: FilePath -> Sqlite3 -> IO Impl.Connection
-mkConn fp obj =
+mkConn :: [Pragma] -> FilePath -> Sqlite3 -> IO Impl.Connection
+mkConn pgms fp obj =
     do children <- newMVar []
+       mapM_ (frunPragma obj children) pgms
        begin_transaction obj children
        ver <- (sqlite3_libversion >>= peekCString)
        return $ Impl.Connection {
@@ -77,6 +99,13 @@ mkConn fp obj =
                             Impl.getTables = fgettables obj children,
                             Impl.describeTable = fdescribeTable obj children,
                             Impl.setBusyTimeout = fsetbusy obj}
+
+frunPragma obj children pragma =
+    case pragma of
+       PragmaFKeys True    -> frunRaw obj children "PRAGMA foreign_keys=ON"
+       PragmaFKeys False   -> frunRaw obj children "PRAGMA foreign_keys=OFF"
+       PragmaSynchronous v -> frunRaw obj children $ "PRAGMA synchronous=" ++ show v
+       _                   -> return ()
 
 fgettables o mchildren =
     do sth <- newSth o mchildren True "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
