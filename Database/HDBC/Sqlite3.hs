@@ -16,12 +16,15 @@ module Database.HDBC.Sqlite3
     (
     -- * Sqlite3 Basics
      connectSqlite3, connectSqlite3Raw, Connection(), setBusyTimeout,
+    -- * Sqlite3 Basics with pragmas
+     connectSqlite3WithPragmas, Pragma (..), PragmaSynchronousValue (..),
     -- * Sqlite3 Error Consts
     module Database.HDBC.Sqlite3.Consts
     )
 
 where
 
-import Database.HDBC.Sqlite3.Connection(connectSqlite3, connectSqlite3Raw, Connection())
+import Database.HDBC.Sqlite3.Connection(connectSqlite3, connectSqlite3Raw, connectSqlite3WithPragmas
+                                       ,Connection(), Pragma (..), PragmaSynchronousValue (..))
 import Database.HDBC.Sqlite3.ConnectionImpl(setBusyTimeout)
 import Database.HDBC.Sqlite3.Consts
